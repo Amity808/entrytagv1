@@ -13,6 +13,17 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 // Import UniversalNFTCore for universal NFT functionality
 import "@zetachain/standard-contracts/contracts/nft/contracts/evm/UniversalNFTCore.sol";
 
+
+error EventMustStartInFuture();
+    error EndTimeMustBeAfterStartTime();
+    error OnlyOrganizerCanCancelEvent();
+    error EventCannotBeCancelled();
+    error EventIsNotActive();
+    error EventHasAlreadyStarted();
+    error TierIsSoldOut();
+    error InsufficientPayment();
+    error FeeCannotExceed20Percent();
+    error InvalidTreasuryAddress();
 contract EVMUniversalNFT is
     Initializable,
     ERC721Upgradeable,
@@ -24,7 +35,79 @@ contract EVMUniversalNFT is
     UUPSUpgradeable,
     UniversalNFTCore // Add UniversalNFTCore for universal features
 {
+    // uint256 private _nextTokenId; // Track next token ID for minting
+
     uint256 private _nextTokenId; // Track next token ID for minting
+    //  uint256 _nextEventId;
+
+     enum TicketTier {
+        General,
+        Premium,
+        VIP
+    }
+    enum EventCategory {
+        Concert,
+        Sports,
+        Conference,
+        Theater,
+        Festival,
+        Exhibition,
+        Other
+    }
+    enum EventStatus {
+        Created,
+        Active,
+        SoldOut,
+        Cancelled,
+        Completed
+    }
+
+    // eventDetails -> name description tiers 
+    struct Event {
+        string eventDetails;
+        EventCategory category;
+        uint256 startTime;
+        uint256 endTime;
+        EventStatus status;
+        address organizer;
+        uint256 totalTickets;
+        uint256 soldTickets;
+        uint256 basePrice;
+    }
+
+    // TicketTier tier; add to ipfs
+     struct Ticket {
+        uint256 tokenId;
+        uint256 eventId;
+        address owner;
+        bool isTransferable;
+        uint256 purchasePrice;
+    }
+
+    uint256 public _nextEventId;
+    uint256 private _platformFeePercentage;
+    address private _platformTreasury;
+
+    // Mappings
+    mapping(uint256 => Event) public events;
+    mapping(uint256 => Ticket) public tickets;
+    // mapping(string => PromoCode) public promoCodes;
+    mapping(address => uint256[]) public userEvents;
+    mapping(address => uint256[]) public userTickets;
+    mapping(uint256 => address[]) public eventAttendees;
+
+    event EventCreated(
+        uint256 indexed eventId,
+        string name,
+        address indexed organizer
+    );
+    event TicketMinted(
+        uint256 indexed tokenId,
+        uint256 indexed eventId,
+        address indexed buyer
+    );
+    
+    event EventCancelled(uint256 indexed eventId, address indexed organizer);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -48,22 +131,108 @@ contract EVMUniversalNFT is
         __UniversalNFTCore_init(gatewayAddress, address(this), gas); // Initialize universal NFT core
     }
 
-    function safeMint(
-        address to,
-        string memory uri
+        function create_ticket(
+        string memory eventDetails,
+        EventCategory category,
+        uint256 startTime,
+        uint256 endTime,
+        uint256 basePrice
     ) public onlyOwner whenNotPaused {
-        // Generate globally unique token ID, feel free to supply your own logic
-        uint256 hash = uint256(
-            keccak256(
-                abi.encodePacked(address(this), block.number, _nextTokenId++)
-            )
-        );
+        if (startTime <= block.timestamp) {
+            revert EventMustStartInFuture();
+        }
+        if (endTime <= startTime) {
+            revert EndTimeMustBeAfterStartTime();
+        }
+        // uint256 eventId =
+        Event storage newEvent = events[ _nextEventId];
 
-        uint256 tokenId = hash & 0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+        newEvent.eventDetails = eventDetails;
+        newEvent.category = category;
+        newEvent.startTime = startTime;
+        newEvent.endTime = endTime;
+        newEvent.status = EventStatus.Active; // Events are automatically active when created
+        newEvent.organizer = msg.sender;
+        newEvent.basePrice = basePrice;
 
-        _safeMint(to, tokenId);
-        _setTokenURI(tokenId, uri);
+         _nextEventId++;
+
+
     }
+
+     function purchaseTicket(uint256 eventId) public payable returns (uint256) {
+        Event storage event_ = events[eventId];
+        if (event_.status != EventStatus.Active) {
+            revert EventIsNotActive();
+        }
+        if (block.timestamp >= event_.startTime) {
+            revert EventHasAlreadyStarted();
+        }
+        if (event_.soldTickets >= event_.totalTickets) {
+            revert TierIsSoldOut();
+        }
+
+        uint256 ticketPrice = event_.basePrice;
+
+        if (msg.value < ticketPrice) {
+            revert InsufficientPayment();
+        }
+
+        // Mint ticket
+        uint256 tokenId = _nextTokenId++;
+        _safeMint(msg.sender, tokenId);
+        _setTokenURI(tokenId, event_.eventDetails);
+
+        // Create ticket record
+        Ticket storage ticket = tickets[tokenId];
+        ticket.tokenId = tokenId;
+        ticket.eventId = eventId;
+        ticket.purchasePrice = ticketPrice;
+        ticket.owner = msg.sender;
+        ticket.isTransferable = true;
+
+        // Update event stats
+        event_.soldTickets++;
+        eventAttendees[eventId].push(msg.sender);
+        userTickets[msg.sender].push(tokenId);
+
+        // Check if event is sold out
+        if (event_.soldTickets == event_.totalTickets) {
+            event_.status = EventStatus.SoldOut;
+        }
+
+        // Handle payment distribution
+        uint256 platformFee = (ticketPrice * _platformFeePercentage) / 100;
+        uint256 organizerPayment = ticketPrice - platformFee;
+
+        payable(_platformTreasury).transfer(platformFee);
+        payable(event_.organizer).transfer(organizerPayment);
+
+        // Refund excess payment
+        if (msg.value > ticketPrice) {
+            payable(msg.sender).transfer(msg.value - ticketPrice);
+        }
+
+        emit TicketMinted(tokenId, eventId, msg.sender);
+        return tokenId;
+    }
+
+    // function safeMint(
+    //     address to,
+    //     string memory uri
+    // ) public onlyOwner whenNotPaused {
+    //     // Generate globally unique token ID, feel free to supply your own logic
+    //     uint256 hash = uint256(
+    //         keccak256(
+    //             abi.encodePacked(address(this), block.number, _nextTokenId++)
+    //         )
+    //     );
+
+    //     uint256 tokenId = hash & 0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+
+    //     _safeMint(to, tokenId);
+    //     _setTokenURI(tokenId, uri);
+    // }
 
     function pause() public onlyOwner {
         _pause();
@@ -133,3 +302,6 @@ contract EVMUniversalNFT is
         return super.supportsInterface(interfaceId);
     }
 }
+
+
+// EVMUniversalNFT

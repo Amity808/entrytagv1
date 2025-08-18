@@ -1,46 +1,67 @@
-const { ethers } = require("hardhat");
+const { ethers, upgrades } = require("hardhat");
 
 async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Deploying contracts with the account:", deployer.address);
 
-  // Deploy EventTicketPlatform
-  const EventTicketPlatform = await ethers.getContractFactory("EventTicketPlatform");
-  const eventTicketPlatform = await EventTicketPlatform.deploy();
+  // Deploy EventTicketPlatform using upgradeable pattern
+  const EventTicketPlatform = await ethers.getContractFactory(
+    "EventTicketPlatform"
+  );
+  const eventTicketPlatform = await upgrades.deployProxy(
+    EventTicketPlatform,
+    [
+      deployer.address, // initialOwner
+      "ZetaChain Event Tickets", // name
+      "ZET", // symbol
+      "0x0000000000000000000000000000000000000000", // gatewayAddress (placeholder)
+      300000, // gas limit
+      "0x0000000000000000000000000000000000000000", // uniswapRouterAddress (placeholder)
+      5, // platformFeePercentage (5%)
+      deployer.address, // platformTreasury
+    ],
+    {
+      initializer: "initialize",
+      kind: "uups",
+    }
+  );
+
   await eventTicketPlatform.deployed();
   console.log("EventTicketPlatform deployed to:", eventTicketPlatform.address);
 
-  // Deploy TicketMarketplace
-  const TicketMarketplace = await ethers.getContractFactory("TicketMarketplace");
-  const ticketMarketplace = await TicketMarketplace.deploy(eventTicketPlatform.address, deployer.address);
-  await ticketMarketplace.deployed();
-  console.log("TicketMarketplace deployed to:", ticketMarketplace.address);
+  // Create a sample event to demonstrate functionality
+  console.log("\nCreating sample event...");
+  const eventDetails = "Sample Concert Event";
+  const category = 0; // Concert
+  const startTime = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
+  const endTime = startTime + 7200; // 2 hours later
+  const basePrice = ethers.utils.parseEther("0.01"); // 0.01 ETH
+  const totalTickets = 50;
 
-  // Initialize the EventTicketPlatform
-  const platformName = "ZetaChain Event Tickets";
-  const platformSymbol = "ZET";
-  const gatewayAddress = "0x0000000000000000000000000000000000000000"; // Replace with actual gateway address
-  const gas = 300000;
-  const uniswapRouterAddress = "0x0000000000000000000000000000000000000000"; // Replace with actual router address
-  
-  await eventTicketPlatform.initialize(
-    deployer.address,
-    platformName,
-    platformSymbol,
-    gatewayAddress,
-    gas,
-    uniswapRouterAddress,
-    deployer.address // platform fee collector
+  const createTx = await eventTicketPlatform.createEvent(
+    eventDetails,
+    category,
+    startTime,
+    endTime,
+    basePrice,
+    totalTickets
   );
-  console.log("EventTicketPlatform initialized");
+  await createTx.wait();
+  console.log("✅ Sample event created successfully");
 
-  // Set marketplace fee collector
-  await ticketMarketplace.setFeeCollector(deployer.address);
-  console.log("Marketplace fee collector set");
+  console.log("\nDeployment Summary:");
+  console.log("===================");
+  console.log(`Contract Address: ${eventTicketPlatform.address}`);
+  console.log(`Owner: ${deployer.address}`);
+  console.log(`Platform Fee: 5%`);
+  console.log(`Treasury: ${deployer.address}`);
 
-  console.log("Deployment completed successfully!");
-  console.log("EventTicketPlatform:", eventTicketPlatform.address);
-  console.log("TicketMarketplace:", ticketMarketplace.address);
+  console.log("\nNext steps:");
+  console.log("1. Update gateway and router addresses for production");
+  console.log("2. Test event creation and ticket purchasing");
+  console.log("3. Deploy to testnet for further testing");
+
+  console.log("\nDeployment completed successfully!");
 }
 
 main()

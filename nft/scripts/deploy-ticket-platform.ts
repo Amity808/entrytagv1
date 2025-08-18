@@ -1,4 +1,5 @@
 import { ethers } from "hardhat";
+import { upgrades } from "hardhat";
 import { EventTicketPlatform } from "../typechain-types";
 
 async function main() {
@@ -7,47 +8,40 @@ async function main() {
     // Get the contract factory
     const EventTicketPlatform = await ethers.getContractFactory("EventTicketPlatform");
 
-    // Deploy the contract
-    const ticketPlatform = await EventTicketPlatform.deploy();
-    await ticketPlatform.waitForDeployment();
-
-    const address = await ticketPlatform.getAddress();
-    console.log(`EventTicketPlatform deployed to: ${address}`);
-
-    // Initialize the contract with default values
+    // Get the deployer signer
     const [deployer] = await ethers.getSigners();
 
-    // Default configuration
-    const platformFeePercentage = 5; // 5% platform fee
-    const platformTreasury = deployer.address; // Deployer as treasury initially
-
-    // Initialize the contract
-    const tx = await ticketPlatform.initialize(
+    // Deploy the contract using upgradeable pattern
+    const ticketPlatform = await upgrades.deployProxy(EventTicketPlatform, [
         deployer.address, // initialOwner
         "Event Tickets", // name
         "TICKET", // symbol
         "0x0000000000000000000000000000000000000000", // gatewayAddress (placeholder)
         300000, // gas limit
         "0x0000000000000000000000000000000000000000", // uniswapRouterAddress (placeholder)
-        platformFeePercentage,
-        platformTreasury
-    );
+        5, // platformFeePercentage (5%)
+        deployer.address // platformTreasury
+    ], {
+        initializer: 'initialize',
+        kind: 'uups'
+    });
 
-    await tx.wait();
-    console.log("EventTicketPlatform initialized successfully!");
+    await ticketPlatform.waitForDeployment();
+
+    const address = await ticketPlatform.getAddress();
+    console.log(`EventTicketPlatform deployed to: ${address}`);
 
     console.log("\nDeployment Summary:");
     console.log("===================");
     console.log(`Contract Address: ${address}`);
     console.log(`Owner: ${deployer.address}`);
-    console.log(`Platform Fee: ${platformFeePercentage}%`);
-    console.log(`Treasury: ${platformTreasury}`);
+    console.log(`Platform Fee: 5%`);
+    console.log(`Treasury: ${deployer.address}`);
 
     console.log("\nNext steps:");
     console.log("1. Update gateway and router addresses for production");
-    console.log("2. Create promo codes using createPromoCode()");
-    console.log("3. Test event creation and ticket purchasing");
-    console.log("4. Deploy to testnet for further testing");
+    console.log("2. Test event creation and ticket purchasing");
+    console.log("3. Deploy to testnet for further testing");
 }
 
 main()
