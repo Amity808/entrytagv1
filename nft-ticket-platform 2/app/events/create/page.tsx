@@ -30,9 +30,11 @@ export default function CreateEventPage() {
     endDate: undefined as Date | undefined,
   })
 
+  const { writeContractAsync } = useWriteContract()
+
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     // Basic validation
@@ -60,7 +62,17 @@ export default function CreateEventPage() {
       // Handle form submission
       console.log("Form submitted:", formData)
 
-      
+      try {
+        const tx = await writeContractAsync({
+          address: NFT_CONTRACT_ADDRESS,
+          abi: Abi.abi,
+          functionName: "create_ticket",
+          args: [formData.name, formData.category, formData.location, formData.basePrice, formData.totalCapacity, formData.startDate, formData.endDate],
+        })
+        console.log("Transaction successful:", tx)
+      } catch (error) {
+        console.error("Transaction failed:", error)
+      }
     }
   }
 
