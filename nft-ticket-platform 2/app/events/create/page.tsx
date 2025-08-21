@@ -15,9 +15,11 @@ import { CalendarIcon, ArrowLeft } from "lucide-react"
 import { format } from "date-fns"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
-import { useWriteContract, useReadContract, useAccount } from "wagmi"
+import { useWriteContract, useReadContract, useAccount, useSimulateContract } from "wagmi"
 import { NFT_CONTRACT_ADDRESS } from "@/contract/address"
 import Abi from "@/contract/abi.json";
+import { makeContractMetadata } from "@/utils/UploadPinta"
+
 export default function CreateEventPage() {
   const [formData, setFormData] = useState({
     name: "",
@@ -28,14 +30,46 @@ export default function CreateEventPage() {
     totalCapacity: "",
     startDate: undefined as Date | undefined,
     endDate: undefined as Date | undefined,
+    image: "",
   })
 
   const { writeContractAsync } = useWriteContract()
+  const { address, isConnected } = useAccount()
+
+  // Simulate the contract call to check for errors
+  const { data: simulationData, error: simulationError } = useSimulateContract({
+    address: NFT_CONTRACT_ADDRESS,
+    abi: Abi.abi,
+    functionName: "create_ticket",
+    args: formData.name && formData.category && formData.startDate && formData.endDate && formData.basePrice ? [
+      "ipfs://placeholder", // Placeholder metadata URI for simulation
+      Number(formData.category),
+      Math.floor((formData.startDate as Date).getTime() / 1000),
+      Math.floor((formData.endDate as Date).getTime() / 1000),
+      BigInt(Math.floor(Number(formData.basePrice) * 10 ** 18)),
+      BigInt(formData.totalCapacity)
+    ] : undefined,
+  })
+
+  // Check if user is contract owner
+  const { data: ownerData } = useReadContract({
+    address: NFT_CONTRACT_ADDRESS,
+    abi: Abi.abi,
+    functionName: "owner",
+  })
+
+  const isOwner = ownerData && address && ownerData.toLowerCase() === address.toLowerCase()
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Check if user is connected
+    if (!isConnected || !address) {
+      alert("Please connect your wallet first")
+      return
+    }
 
     // Basic validation
     const newErrors: Record<string, string> = {}
@@ -58,20 +92,62 @@ export default function CreateEventPage() {
 
     setErrors(newErrors)
 
-    if (Object.keys(newErrors).length === 0) {
-      // Handle form submission
-      console.log("Form submitted:", formData)
+    // Only proceed if there are no validation errors
+    if (Object.keys(newErrors).length > 0) {
+      return
+    }
 
-      try {
-        const tx = await writeContractAsync({
-          address: NFT_CONTRACT_ADDRESS,
-          abi: Abi.abi,
-          functionName: "create_ticket",
-          args: [formData.name, formData.category, formData.location, formData.basePrice, formData.totalCapacity, formData.startDate, formData.endDate],
-        })
-        console.log("Transaction successful:", tx)
-      } catch (error) {
-        console.error("Transaction failed:", error)
+    // Check simulation for errors
+    if (simulationError) {
+      console.error("Simulation error:", simulationError)
+      alert(`Transaction simulation failed: ${simulationError.message}`)
+      return
+    }
+
+    try {
+      // Create metadata first
+      const result = await makeContractMetadata({
+        imageFile: new File([], "image.png"),
+        name: formData.name,
+        description: formData.description,
+        tiers: formData.category,
+        totalCapacity: Number(formData.totalCapacity),
+        location: formData.location,
+      })
+
+      console.log("Metadata created:", result)
+      console.log("User address:", address)
+      console.log("Contract address:", NFT_CONTRACT_ADDRESS)
+
+      const tx = await writeContractAsync({
+        address: NFT_CONTRACT_ADDRESS,
+        abi: Abi.abi,
+        functionName: "create_ticket",
+        args: [
+          result, 
+          Number(formData.category), 
+          Math.floor((formData.startDate as Date).getTime() / 1000), 
+          Math.floor((formData.endDate as Date).getTime() / 1000), 
+          BigInt(Math.floor(Number(formData.basePrice) * 10 ** 18)),
+          BigInt(formData.totalCapacity)
+        ],
+      })
+
+      console.log("Transaction hash:", tx)
+
+      // Transaction submitted successfully
+      alert("Event creation transaction submitted! Check your wallet for confirmation.")
+
+    } catch (error: any) {
+      console.error("Transaction failed:", error)
+
+      // Provide more specific error information
+      if (error.message) {
+        alert(`Transaction failed: ${error.message}`)
+      } else if (error.reason) {
+        alert(`Transaction failed: ${error.reason}`)
+      } else {
+        alert("Transaction failed. Check console for details.")
       }
     }
   }
@@ -114,6 +190,20 @@ export default function CreateEventPage() {
                 {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
               </div>
 
+              {/* Event Image */}
+              <div className="space-y-2">
+                <Label htmlFor="image">Event Image *</Label>
+                <Input
+                  id="image"
+                  value={formData.image}
+                  type="file"
+                  onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+                  placeholder="Enter event image"
+                  className={errors.image ? "border-destructive" : ""}
+                />
+                {errors.image && <p className="text-sm text-destructive">{errors.image}</p>}
+              </div>
+
               {/* Description */}
               <div className="space-y-2">
                 <Label htmlFor="description">Description *</Label>
@@ -139,13 +229,13 @@ export default function CreateEventPage() {
                     <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Concert">Concert</SelectItem>
-                    <SelectItem value="Conference">Conference</SelectItem>
-                    <SelectItem value="Sports">Sports</SelectItem>
-                    <SelectItem value="Theater">Theater</SelectItem>
-                    <SelectItem value="Festival">Festival</SelectItem>
-                    <SelectItem value="Exhibition">Exhibition</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
+                    <SelectItem value="0">Concert</SelectItem>
+                    <SelectItem value="1">Sports</SelectItem>
+                    <SelectItem value="2">Conference</SelectItem>
+                    <SelectItem value="3">Theater</SelectItem>
+                    <SelectItem value="4">Festival</SelectItem>
+                    <SelectItem value="5">Exhibition</SelectItem>
+                    <SelectItem value="6">Other</SelectItem>
                   </SelectContent>
                 </Select>
                 {errors.category && <p className="text-sm text-destructive">{errors.category}</p>}
@@ -255,9 +345,41 @@ export default function CreateEventPage() {
                 </div>
               </div>
 
+              {/* Debug Information */}
+              {isConnected && (
+                <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
+                  <h4 className="text-sm font-medium">Debug Information</h4>
+                  <div className="text-xs space-y-1">
+                    <p>Connected Address: {address}</p>
+                    <p>Contract Address: {NFT_CONTRACT_ADDRESS}</p>
+                    <p>Is Owner: {isOwner ? "Yes ✓" : "No ✗"}</p>
+                    {simulationError && (
+                      <p className="text-destructive">
+                        Simulation Error: {simulationError.message}
+                      </p>
+                    )}
+                    {simulationData && (
+                      <p className="text-green-600">
+                        Simulation Successful ✓
+                      </p>
+                    )}
+                  </div>
+                  {/* {!isOwner && (
+                    <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-yellow-800 text-xs">
+                      ⚠️ Warning: Only the contract owner can create events. You need to be the owner to proceed.
+                    </div>
+                  )} */}
+                </div>
+              )}
+
               {/* Submit Button */}
               <div className="flex gap-4 pt-4">
-                <Button type="submit" className="flex-1">
+                <Button
+                  type="submit"
+                  className="flex-1"
+                // disabled={!isOwner}
+                // title={!isOwner ? "Only the contract owner can create events" : ""}
+                >
                   Create Event
                 </Button>
                 <Button type="button" variant="outline" className="flex-1 bg-transparent" asChild>

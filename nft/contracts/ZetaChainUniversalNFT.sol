@@ -34,7 +34,7 @@ contract ZetaChainUniversalNFT is
     UUPSUpgradeable, // Supports upgradeable proxy pattern
     UniversalNFTCore // Custom core for additional logic
 {
-    uint256 private _nextTokenId; // Track next token ID for minting
+    uint256 public _nextTokenId; // Track next token ID for minting
     //  uint256 _nextEventId;
 
      enum TicketTier {
@@ -136,8 +136,8 @@ contract ZetaChainUniversalNFT is
         EventCategory category,
         uint256 startTime,
         uint256 endTime,
-        uint256 basePrice
-    ) public onlyOwner whenNotPaused {
+        uint256 basePrice, uint256 totalTickets
+    ) public  whenNotPaused {
         if (startTime <= block.timestamp) {
             revert EventMustStartInFuture();
         }

@@ -21,8 +21,15 @@ const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
         setMounted(true);
     }, []);
 
+    // Return a placeholder that matches server-side rendering
     if (!mounted) {
-        return <div>Loading theme...</div>;
+        return (
+            <div suppressHydrationWarning>
+                <div style={{ visibility: 'hidden' }}>
+                    {children}
+                </div>
+            </div>
+        );
     }
 
     const rainbowKitTheme = theme === "dark" ? darkTheme() : lightTheme();
@@ -33,7 +40,6 @@ const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 };
 
 const WagmiWrapper = ({ children }: { children: React.ReactNode }) => {
-    // Temporarily simplified to test
     return <>{children}</>;
 };
 
@@ -44,10 +50,20 @@ export const Providers = ({ children }: { children: React.ReactNode }) => {
         setMounted(true);
     }, []);
 
-    if (!mounted) return null;
+    // During SSR and initial hydration, render a minimal structure
+    // that matches what the client will eventually render
+    if (!mounted) {
+        return (
+            <div suppressHydrationWarning>
+                <div style={{ visibility: 'hidden' }}>
+                    {children}
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <WagmiProvider config={config}>
+        <WagmiProvider config={config as any}>
             <QueryClientProvider client={queryClient}>
                 <NextThemesProvider
                     attribute="class"

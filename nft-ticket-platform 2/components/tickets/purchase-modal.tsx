@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Wallet, AlertTriangle, CheckCircle, XCircle, ExternalLink } from "lucide-react"
+import { NFT_CONTRACT_ADDRESS } from "@/contract/address"
+import Abi from "@/contract/abi.json"
 
 interface Event {
   id: string
@@ -17,7 +19,7 @@ interface Event {
   basePrice: number
   totalCapacity: number
   ticketsSold: number
-  status: string
+  status: string | number
 }
 
 interface PurchaseModalProps {
@@ -27,24 +29,7 @@ interface PurchaseModalProps {
   onPurchaseSuccess?: (txHash: string) => void
 }
 
-// Mock contract ABI - in a real app, this would be the actual NFT contract ABI
-const mockContractABI = [
-  {
-    name: "purchaseTicket",
-    type: "function",
-    stateMutability: "payable",
-    inputs: [
-      { name: "eventId", type: "uint256" },
-      { name: "quantity", type: "uint256" },
-    ],
-    outputs: [],
-  },
-] as const
-
-const MOCK_CONTRACT_ADDRESS = "0x1234567890123456789012345678901234567890"
-
 export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: PurchaseModalProps) {
-  const [quantity, setQuantity] = useState(1)
   const [isWaitingForTx, setIsWaitingForTx] = useState(false)
 
   const { address, isConnected } = useAccount()
@@ -55,9 +40,21 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
     hash,
   })
 
-  const totalPrice = event.basePrice * quantity
   const availableTickets = event.totalCapacity - event.ticketsSold
-  const hasInsufficientBalance = balance ? Number.parseFloat(balance.formatted) < totalPrice : true
+  const hasInsufficientBalance = balance ? Number.parseFloat(balance.formatted) < event.basePrice : true
+
+  // Check if event status allows purchases
+  const canPurchaseEvent = (status: string | number) => {
+    if (typeof status === 'number') {
+      // Allow status 0 (Created) and 1 (Active)
+      return status === 0 || status === 1;
+    } else {
+      // Handle string status for backward compatibility
+      return status === "Created" || status === "Active";
+    }
+  };
+
+  const isEventPurchaseable = canPurchaseEvent(event.status) && availableTickets > 0;
 
   const handlePurchase = async () => {
     if (!isConnected || !address) return
@@ -65,12 +62,14 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
     setIsWaitingForTx(true)
 
     try {
+      // The actual contract function only takes eventId, not quantity
+      // Each purchase mints one ticket
       await writeContract({
-        address: MOCK_CONTRACT_ADDRESS,
-        abi: mockContractABI,
+        address: NFT_CONTRACT_ADDRESS,
+        abi: Abi.abi,
         functionName: "purchaseTicket",
-        args: [BigInt(event.id), BigInt(quantity)],
-        value: parseEther(totalPrice.toString()),
+        args: [BigInt(event.id)],
+        value: parseEther(event.basePrice.toString()), // Price for one ticket
       })
     } catch (err) {
       console.error("Purchase failed:", err)
@@ -81,13 +80,12 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
   const handleClose = () => {
     if (!isPending && !isWaitingForTx) {
       onOpenChange(false)
-      setQuantity(1)
       setIsWaitingForTx(false)
     }
   }
 
   const getTransactionUrl = (hash: string) => {
-    // This would be dynamic based on the current chain
+    // ZetaChain Athens testnet explorer
     return `https://athens.explorer.zetachain.com/tx/${hash}`
   }
 
@@ -111,13 +109,11 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
               <h4 className="font-semibold mb-2">{event.name}</h4>
               <div className="flex justify-between text-sm">
                 <span>Quantity:</span>
-                <span>
-                  {quantity} ticket{quantity > 1 ? "s" : ""}
-                </span>
+                <span>1 ticket</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span>Total Paid:</span>
-                <span>{totalPrice} ZETA</span>
+                <span>{event.basePrice} ZETA</span>
               </div>
             </div>
 
@@ -190,7 +186,7 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
   // Transaction pending state
   if (isPending || isLoading) {
     return (
-      <Dialog open={open} onOpenChange={() => {}}>
+      <Dialog open={open} onOpenChange={() => { }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <div className="flex items-center gap-2">
@@ -211,13 +207,11 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
               <h4 className="font-semibold mb-2">{event.name}</h4>
               <div className="flex justify-between text-sm">
                 <span>Quantity:</span>
-                <span>
-                  {quantity} ticket{quantity > 1 ? "s" : ""}
-                </span>
+                <span>1 ticket</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span>Total:</span>
-                <span>{totalPrice} ZETA</span>
+                <span>{event.basePrice} ZETA</span>
               </div>
             </div>
 
@@ -246,38 +240,36 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Quantity Selection */}
+          {/* Quantity Selection - Disabled since contract only supports single purchases */}
           <div className="space-y-2">
             <Label htmlFor="quantity">Quantity</Label>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                disabled={quantity <= 1}
+                disabled
+                className="opacity-50"
               >
                 -
               </Button>
               <Input
                 id="quantity"
                 type="number"
-                min="1"
-                max={Math.min(10, availableTickets)}
-                value={quantity}
-                onChange={(e) => setQuantity(Math.max(1, Number.parseInt(e.target.value) || 1))}
-                className="text-center"
+                value="1"
+                disabled
+                className="text-center bg-muted"
               />
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setQuantity(Math.min(availableTickets, quantity + 1))}
-                disabled={quantity >= Math.min(10, availableTickets)}
+                disabled
+                className="opacity-50"
               >
                 +
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Maximum 10 tickets per transaction. {availableTickets} available.
+              Currently limited to 1 ticket per transaction. {availableTickets} available.
             </p>
           </div>
 
@@ -291,11 +283,11 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
             </div>
             <div className="flex justify-between">
               <span>Quantity:</span>
-              <span>{quantity}</span>
+              <span>1</span>
             </div>
             <div className="flex justify-between font-semibold">
               <span>Total:</span>
-              <span>{totalPrice} ZETA</span>
+              <span>{event.basePrice} ZETA</span>
             </div>
           </div>
 
@@ -314,7 +306,7 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    Insufficient balance. You need {totalPrice} ZETA to complete this purchase.
+                    Insufficient balance. You need {event.basePrice} ZETA to complete this purchase.
                   </AlertDescription>
                 </Alert>
               )}
@@ -334,7 +326,7 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
             <Button
               className="flex-1"
               onClick={handlePurchase}
-              disabled={!isConnected || hasInsufficientBalance || isPending || isLoading}
+              disabled={!isConnected || hasInsufficientBalance || isPending || isLoading || !isEventPurchaseable}
             >
               {isPending ? (
                 <>
@@ -344,11 +336,24 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
               ) : (
                 <>
                   <Wallet className="h-4 w-4 mr-2" />
-                  Purchase for {totalPrice} ZETA
+                  Purchase for {event.basePrice} ZETA
                 </>
               )}
             </Button>
           </div>
+
+          {/* Additional validation messages */}
+          {!isEventPurchaseable && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {availableTickets <= 0
+                  ? "This event is sold out. No tickets available for purchase."
+                  : "This event is not currently accepting ticket purchases."
+                }
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
       </DialogContent>
     </Dialog>
