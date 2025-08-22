@@ -13,17 +13,16 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 // Import UniversalNFTCore for universal NFT functionality
 import "@zetachain/standard-contracts/contracts/nft/contracts/evm/UniversalNFTCore.sol";
 
-
 error EventMustStartInFuture();
-    error EndTimeMustBeAfterStartTime();
-    error OnlyOrganizerCanCancelEvent();
-    error EventCannotBeCancelled();
-    error EventIsNotActive();
-    error EventHasAlreadyStarted();
-    error TierIsSoldOut();
-    error InsufficientPayment();
-    error FeeCannotExceed20Percent();
-    error InvalidTreasuryAddress();
+error EndTimeMustBeAfterStartTime();
+error OnlyOrganizerCanCancelEvent();
+error EventCannotBeCancelled();
+error EventIsNotActive();
+error EventHasAlreadyStarted();
+error TierIsSoldOut();
+error InsufficientPayment();
+error FeeCannotExceed20Percent();
+error InvalidTreasuryAddress();
 contract EVMUniversalNFT is
     Initializable,
     ERC721Upgradeable,
@@ -40,7 +39,7 @@ contract EVMUniversalNFT is
     uint256 private _nextTokenId; // Track next token ID for minting
     //  uint256 _nextEventId;
 
-     enum TicketTier {
+    enum TicketTier {
         General,
         Premium,
         VIP
@@ -62,7 +61,7 @@ contract EVMUniversalNFT is
         Completed
     }
 
-    // eventDetails -> name description tiers 
+    // eventDetails -> name description tiers
     struct Event {
         string eventDetails;
         EventCategory category;
@@ -76,7 +75,7 @@ contract EVMUniversalNFT is
     }
 
     // TicketTier tier; add to ipfs
-     struct Ticket {
+    struct Ticket {
         uint256 tokenId;
         uint256 eventId;
         address owner;
@@ -106,7 +105,7 @@ contract EVMUniversalNFT is
         uint256 indexed eventId,
         address indexed buyer
     );
-    
+
     event EventCancelled(uint256 indexed eventId, address indexed organizer);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -131,12 +130,13 @@ contract EVMUniversalNFT is
         __UniversalNFTCore_init(gatewayAddress, address(this), gas); // Initialize universal NFT core
     }
 
-        function create_ticket(
+    function create_ticket(
         string memory eventDetails,
         EventCategory category,
         uint256 startTime,
         uint256 endTime,
-        uint256 basePrice
+        uint256 basePrice, 
+        uint256 totalTickets
     ) public onlyOwner whenNotPaused {
         if (startTime <= block.timestamp) {
             revert EventMustStartInFuture();
@@ -145,7 +145,7 @@ contract EVMUniversalNFT is
             revert EndTimeMustBeAfterStartTime();
         }
         // uint256 eventId =
-        Event storage newEvent = events[ _nextEventId];
+        Event storage newEvent = events[_nextEventId];
 
         newEvent.eventDetails = eventDetails;
         newEvent.category = category;
@@ -154,13 +154,12 @@ contract EVMUniversalNFT is
         newEvent.status = EventStatus.Active; // Events are automatically active when created
         newEvent.organizer = msg.sender;
         newEvent.basePrice = basePrice;
+        newEvent.totalTickets = totalTickets; // Add missing assignment
 
-         _nextEventId++;
-
-
+        _nextEventId++;
     }
 
-     function purchaseTicket(uint256 eventId) public payable returns (uint256) {
+    function purchaseTicket(uint256 eventId) public payable returns (uint256) {
         Event storage event_ = events[eventId];
         if (event_.status != EventStatus.Active) {
             revert EventIsNotActive();
@@ -302,6 +301,5 @@ contract EVMUniversalNFT is
         return super.supportsInterface(interfaceId);
     }
 }
-
 
 // EVMUniversalNFT

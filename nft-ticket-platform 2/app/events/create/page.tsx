@@ -41,14 +41,30 @@ export default function CreateEventPage() {
     address: NFT_CONTRACT_ADDRESS,
     abi: Abi.abi,
     functionName: "create_ticket",
-    args: formData.name && formData.category && formData.startDate && formData.endDate && formData.basePrice ? [
+    args: formData.name && formData.category && formData.startDate && formData.endDate && formData.basePrice && formData.totalCapacity ? [
       "ipfs://placeholder", // Placeholder metadata URI for simulation
       Number(formData.category),
-      Math.floor((formData.startDate as Date).getTime() / 1000),
-      Math.floor((formData.endDate as Date).getTime() / 1000),
+      Math.ceil((formData.startDate as Date).getTime() / 1000),
+      Math.ceil((formData.endDate as Date).getTime() / 1000),
       BigInt(Math.floor(Number(formData.basePrice) * 10 ** 18)),
       BigInt(formData.totalCapacity)
     ] : undefined,
+    query: {
+      enabled: !!(
+        formData.name &&
+        formData.category &&
+        formData.startDate &&
+        formData.endDate &&
+        formData.basePrice &&
+        formData.totalCapacity &&
+        // Only simulate if dates are valid
+        formData.startDate &&
+        formData.startDate.getTime() > Date.now() + 60 * 60 * 1000 && // 1 hour in future
+        formData.endDate &&
+        formData.startDate &&
+        formData.endDate.getTime() > formData.startDate.getTime() + 2 * 60 * 60 * 1000 // 2 hours after start
+      )
+    }
   })
 
   // Check if user is contract owner
@@ -58,7 +74,22 @@ export default function CreateEventPage() {
     functionName: "owner",
   })
 
-  const isOwner = ownerData && address && ownerData.toLowerCase() === address.toLowerCase()
+  // Check if contract is paused
+  const { data: pausedData } = useReadContract({
+    address: NFT_CONTRACT_ADDRESS,
+    abi: Abi.abi,
+    functionName: "paused",
+  })
+
+  // Get current block timestamp for comparison
+  const { data: blockTimestampData } = useReadContract({
+    address: NFT_CONTRACT_ADDRESS,
+    abi: Abi.abi,
+    functionName: "blockTimestamp",
+  })
+
+  const isOwner = ownerData && address && typeof ownerData === 'string' && ownerData.toLowerCase() === address.toLowerCase()
+  const isPaused = pausedData === true
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -88,6 +119,32 @@ export default function CreateEventPage() {
     if (!formData.endDate) newErrors.endDate = "End date is required"
     if (formData.startDate && formData.endDate && formData.startDate >= formData.endDate) {
       newErrors.endDate = "End date must be after start date"
+    }
+
+    // Ensure start date is at least 5 minutes in the future
+    if (formData.startDate) {
+      const now = new Date()
+      const minStartTime = new Date(now.getTime() + 5 * 60 * 1000) // 5 minutes from now
+      if (formData.startDate <= minStartTime) {
+        newErrors.startDate = "Start date must be at least 5 minutes in the future"
+      }
+    }
+
+    // Ensure end date is at least 2 hours after start date
+    if (formData.startDate && formData.endDate) {
+      const minEndTime = new Date(formData.startDate.getTime() + 2 * 60 * 60 * 1000) // 2 hours after start
+      if (formData.endDate < minEndTime) {
+        newErrors.endDate = "End date must be at least 2 hours after start date"
+      }
+    }
+
+    // Additional validation: ensure start time is at least 1 hour in the future for contract compatibility
+    if (formData.startDate) {
+      const now = new Date()
+      const minStartTime = new Date(now.getTime() + 60 * 60 * 1000) // 1 hour from now
+      if (formData.startDate <= minStartTime) {
+        newErrors.startDate = "Start date must be at least 1 hour in the future for contract compatibility"
+      }
     }
 
     setErrors(newErrors)
@@ -124,10 +181,10 @@ export default function CreateEventPage() {
         abi: Abi.abi,
         functionName: "create_ticket",
         args: [
-          result, 
-          Number(formData.category), 
-          Math.floor((formData.startDate as Date).getTime() / 1000), 
-          Math.floor((formData.endDate as Date).getTime() / 1000), 
+          result,
+          Number(formData.category),
+          Math.ceil((formData.startDate as Date).getTime() / 1000),
+          Math.ceil((formData.endDate as Date).getTime() / 1000),
           BigInt(Math.floor(Number(formData.basePrice) * 10 ** 18)),
           BigInt(formData.totalCapacity)
         ],
@@ -177,6 +234,17 @@ export default function CreateEventPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Contract Requirements Notice */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="text-sm font-medium text-blue-900 mb-2">📋 Contract Requirements</h3>
+                <div className="text-xs text-blue-800 space-y-1">
+                  <p>• Start time must be at least 1 hour in the future</p>
+                  <p>• End time must be at least 2 hours after start time</p>
+                  <p>• All times are converted to Unix timestamps (seconds since epoch)</p>
+                  <p>• The contract will reject events with past start times</p>
+                </div>
+              </div>
+
               {/* Event Name */}
               <div className="space-y-2">
                 <Label htmlFor="name">Event Name *</Label>
@@ -195,10 +263,15 @@ export default function CreateEventPage() {
                 <Label htmlFor="image">Event Image *</Label>
                 <Input
                   id="image"
-                  value={formData.image}
                   type="file"
-                  onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                  placeholder="Enter event image"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      setFormData({ ...formData, image: file.name })
+                    }
+                  }}
+                  placeholder="Select event image"
                   className={errors.image ? "border-destructive" : ""}
                 />
                 {errors.image && <p className="text-sm text-destructive">{errors.image}</p>}
@@ -255,61 +328,86 @@ export default function CreateEventPage() {
               </div>
 
               {/* Date Range */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Start Date *</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !formData.startDate && "text-muted-foreground",
-                          errors.startDate && "border-destructive",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {formData.startDate ? format(formData.startDate, "PPP") : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={formData.startDate}
-                        onSelect={(date) => setFormData({ ...formData, startDate: date })}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  {errors.startDate && <p className="text-sm text-destructive">{errors.startDate}</p>}
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
+                  <p className="font-medium mb-1">⚠️ Important Timing Requirements:</p>
+                  <ul className="list-disc list-inside space-y-1 text-xs">
+                    <li>Start date must be at least 1 hour in the future</li>
+                    <li>End date must be at least 2 hours after start date</li>
+                    <li>These restrictions ensure contract compatibility</li>
+                  </ul>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>End Date *</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !formData.endDate && "text-muted-foreground",
-                          errors.endDate && "border-destructive",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {formData.endDate ? format(formData.endDate, "PPP") : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={formData.endDate}
-                        onSelect={(date) => setFormData({ ...formData, endDate: date })}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  {errors.endDate && <p className="text-sm text-destructive">{errors.endDate}</p>}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Start Date *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !formData.startDate && "text-muted-foreground",
+                            errors.startDate && "border-destructive",
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {formData.startDate ? format(formData.startDate, "PPP") : "Pick a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <Calendar
+                          mode="single"
+                          selected={formData.startDate}
+                          onSelect={(date) => setFormData({ ...formData, startDate: date })}
+                          initialFocus
+                          disabled={(date) => {
+                            // Disable past dates and dates less than 1 hour from now
+                            const now = new Date()
+                            const minStartTime = new Date(now.getTime() + 60 * 60 * 1000) // 1 hour from now
+                            return date < minStartTime
+                          }}
+                          fromDate={new Date(Date.now() + 60 * 60 * 1000)} // 1 hour from now
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    {errors.startDate && <p className="text-sm text-destructive">{errors.startDate}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>End Date *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !formData.endDate && "text-muted-foreground",
+                            errors.endDate && "border-destructive",
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {formData.endDate ? format(formData.endDate, "PPP") : "Pick a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <Calendar
+                          mode="single"
+                          selected={formData.endDate}
+                          onSelect={(date) => setFormData({ ...formData, endDate: date })}
+                          initialFocus
+                          disabled={(date) => {
+                            // Disable dates before start date and dates less than 2 hours from start date
+                            if (!formData.startDate) return true
+                            const minEndTime = new Date(formData.startDate.getTime() + 2 * 60 * 60 * 1000) // 2 hours after start
+                            return date <= formData.startDate || date < minEndTime
+                          }}
+                          fromDate={formData.startDate ? new Date(formData.startDate.getTime() + 2 * 60 * 60 * 1000) : undefined}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    {errors.endDate && <p className="text-sm text-destructive">{errors.endDate}</p>}
+                  </div>
                 </div>
               </div>
 
@@ -353,9 +451,45 @@ export default function CreateEventPage() {
                     <p>Connected Address: {address}</p>
                     <p>Contract Address: {NFT_CONTRACT_ADDRESS}</p>
                     <p>Is Owner: {isOwner ? "Yes ✓" : "No ✗"}</p>
+                    <p>Is Paused: {isPaused ? "Yes ✗" : "No ✓"}</p>
+                    <p>Current Time: {new Date().toISOString()}</p>
+                    <p>Current Timestamp: {Math.floor(Date.now() / 1000)}</p>
+                    {formData.startDate && (
+                      <p>Start Timestamp: {Math.ceil(formData.startDate.getTime() / 1000)} ({formData.startDate.toISOString()})</p>
+                    )}
+                    {formData.endDate && (
+                      <p>End Timestamp: {Math.ceil(formData.endDate.getTime() / 1000)} ({formData.endDate.toISOString()})</p>
+                    )}
+                    {formData.startDate && (
+                      <p>Time Until Start: {Math.max(0, Math.floor((formData.startDate.getTime() - Date.now()) / 1000))} seconds</p>
+                    )}
+                    {formData.startDate && formData.endDate && (
+                      <div className="space-y-1">
+                        <p className="font-medium">Contract Parameters:</p>
+                        <p>Start: {Math.ceil(formData.startDate.getTime() / 1000)} ({formData.startDate.toISOString()})</p>
+                        <p>End: {Math.ceil(formData.endDate.getTime() / 1000)} ({formData.endDate.toISOString()})</p>
+                        <p>Current: {Math.floor(Date.now() / 1000)} ({new Date().toISOString()})</p>
+                        <p>Start Date Object: {formData.startDate.toString()}</p>
+                        <p>Start Date getTime(): {formData.startDate.getTime()}</p>
+                        <p>Current Date getTime(): {Date.now()}</p>
+                        <p>Difference (ms): {formData.startDate.getTime() - Date.now()}</p>
+                        <p>Difference (seconds): {(formData.startDate.getTime() - Date.now()) / 1000}</p>
+                        {Math.ceil(formData.startDate.getTime() / 1000) <= Math.floor(Date.now() / 1000) && (
+                          <p className="text-destructive font-medium">⚠️ Start time is in the past!</p>
+                        )}
+                        {Math.ceil(formData.endDate.getTime() / 1000) <= Math.ceil(formData.startDate.getTime() / 1000) && (
+                          <p className="text-destructive font-medium">⚠️ End time is before or equal to start time!</p>
+                        )}
+                      </div>
+                    )}
                     {simulationError && (
                       <p className="text-destructive">
                         Simulation Error: {simulationError.message}
+                      </p>
+                    )}
+                    {!simulationData && !simulationError && formData.startDate && (
+                      <p className="text-yellow-600">
+                        Simulation disabled - ensure all fields are filled and dates are valid
                       </p>
                     )}
                     {simulationData && (
@@ -364,11 +498,6 @@ export default function CreateEventPage() {
                       </p>
                     )}
                   </div>
-                  {/* {!isOwner && (
-                    <div className="mt-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-yellow-800 text-xs">
-                      ⚠️ Warning: Only the contract owner can create events. You need to be the owner to proceed.
-                    </div>
-                  )} */}
                 </div>
               )}
 
@@ -384,6 +513,52 @@ export default function CreateEventPage() {
                 </Button>
                 <Button type="button" variant="outline" className="flex-1 bg-transparent" asChild>
                   <Link href="/events">Cancel</Link>
+                </Button>
+              </div>
+
+              {/* Test Button for Debugging */}
+              <div className="pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      // Test with clearly future dates
+                      const testStartDate = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
+                      const testEndDate = new Date(testStartDate.getTime() + 3 * 60 * 60 * 1000) // 3 hours after start
+
+                      console.log("Testing with dates:", {
+                        start: testStartDate.toISOString(),
+                        end: testEndDate.toISOString(),
+                        startTimestamp: Math.ceil(testStartDate.getTime() / 1000),
+                        endTimestamp: Math.ceil(testEndDate.getTime() / 1000),
+                        currentTimestamp: Math.floor(Date.now() / 1000)
+                      })
+
+                      const tx = await writeContractAsync({
+                        address: NFT_CONTRACT_ADDRESS,
+                        abi: Abi.abi,
+                        functionName: "create_ticket",
+                        args: [
+                          "ipfs://test-metadata",
+                          Number(2), // Conference category
+                          Math.ceil(testStartDate.getTime() / 1000),
+                          Math.ceil(testEndDate.getTime() / 1000),
+                          BigInt(10000000000000000), // 0.01 ZETA
+                          BigInt(100)
+                        ],
+                      })
+
+                      console.log("Test transaction hash:", tx)
+                      alert("Test event created successfully!")
+                    } catch (error: any) {
+                      console.error("Test transaction failed:", error)
+                      alert(`Test failed: ${error.message || error.reason || 'Unknown error'}`)
+                    }
+                  }}
+                  className="w-full"
+                >
+                  🧪 Test: Create Event with Future Dates
                 </Button>
               </div>
             </form>

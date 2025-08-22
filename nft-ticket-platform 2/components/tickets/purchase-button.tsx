@@ -27,9 +27,12 @@ export function PurchaseButton({ event, className, onPurchaseSuccess }: Purchase
 
   const { isConnected } = useAccount()
 
-  const availableTickets = event.totalCapacity - event.ticketsSold
+  // Convert to numbers and ensure they're valid
+  const totalCapacity = typeof event.totalCapacity === 'bigint' ? Number(event.totalCapacity) : event.totalCapacity
+  const ticketsSold = typeof event.ticketsSold === 'bigint' ? Number(event.ticketsSold) : event.ticketsSold
 
-  // Handle numeric status enum values: 0=Created, 1=Active, 2=SoldOut, 3=Cancelled, 4=Completed
+  const availableTickets = totalCapacity - ticketsSold
+
   const isBlockedStatus = (status: number | string) => {
     if (typeof status === 'number') {
       // Block status 2 (SoldOut), 3 (Cancelled), 4 (Completed)
@@ -48,11 +51,15 @@ export function PurchaseButton({ event, className, onPurchaseSuccess }: Purchase
     eventId: event.id,
     eventStatus: event.status,
     statusType: typeof event.status,
-    totalCapacity: event.totalCapacity,
-    ticketsSold: event.ticketsSold,
+    totalCapacity: totalCapacity,
+    ticketsSold: ticketsSold,
     availableTickets,
     canPurchase,
-    isBlocked: isBlockedStatus(event.status)
+    isBlocked: isBlockedStatus(event.status),
+    rawTotalCapacity: event.totalCapacity,
+    rawTicketsSold: event.ticketsSold,
+    hasContractBug: totalCapacity === 0 && ticketsSold === 0,
+    contractBugWarning: totalCapacity === 0 ? "⚠️ CONTRACT BUG: totalTickets was never set!" : "✅ Contract working correctly"
   });
 
   const handleClick = () => {

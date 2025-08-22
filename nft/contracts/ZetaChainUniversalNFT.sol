@@ -13,15 +13,15 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 // Import UniversalNFTCore for universal NFT functionality
 import "@zetachain/standard-contracts/contracts/nft/contracts/zetachain/UniversalNFTCore.sol";
 error EventMustStartInFuture();
-    error EndTimeMustBeAfterStartTime();
-    error OnlyOrganizerCanCancelEvent();
-    error EventCannotBeCancelled();
-    error EventIsNotActive();
-    error EventHasAlreadyStarted();
-    error TierIsSoldOut();
-    error InsufficientPayment();
-    error FeeCannotExceed20Percent();
-    error InvalidTreasuryAddress();
+error EndTimeMustBeAfterStartTime();
+error OnlyOrganizerCanCancelEvent();
+error EventCannotBeCancelled();
+error EventIsNotActive();
+error EventHasAlreadyStarted();
+error TierIsSoldOut();
+error InsufficientPayment();
+error FeeCannotExceed20Percent();
+error InvalidTreasuryAddress();
 
 contract ZetaChainUniversalNFT is
     Initializable, // Allows upgradeable contract initialization
@@ -37,7 +37,7 @@ contract ZetaChainUniversalNFT is
     uint256 public _nextTokenId; // Track next token ID for minting
     //  uint256 _nextEventId;
 
-     enum TicketTier {
+    enum TicketTier {
         General,
         Premium,
         VIP
@@ -59,7 +59,7 @@ contract ZetaChainUniversalNFT is
         Completed
     }
 
-    // eventDetails -> name description tiers 
+    // eventDetails -> name description tiers
     struct Event {
         string eventDetails;
         EventCategory category;
@@ -73,7 +73,7 @@ contract ZetaChainUniversalNFT is
     }
 
     // TicketTier tier; add to ipfs
-     struct Ticket {
+    struct Ticket {
         uint256 tokenId;
         uint256 eventId;
         address owner;
@@ -103,10 +103,8 @@ contract ZetaChainUniversalNFT is
         uint256 indexed eventId,
         address indexed buyer
     );
-    
+
     event EventCancelled(uint256 indexed eventId, address indexed organizer);
-
-
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -136,8 +134,9 @@ contract ZetaChainUniversalNFT is
         EventCategory category,
         uint256 startTime,
         uint256 endTime,
-        uint256 basePrice, uint256 totalTickets
-    ) public  whenNotPaused {
+        uint256 basePrice,
+        uint256 totalTickets
+    ) public whenNotPaused {
         if (startTime <= block.timestamp) {
             revert EventMustStartInFuture();
         }
@@ -145,22 +144,21 @@ contract ZetaChainUniversalNFT is
             revert EndTimeMustBeAfterStartTime();
         }
         // uint256 eventId =
-        Event storage newEvent = events[ _nextEventId];
+        Event storage newEvent = events[_nextEventId];
 
         newEvent.eventDetails = eventDetails;
         newEvent.category = category;
         newEvent.startTime = startTime;
         newEvent.endTime = endTime;
-        newEvent.status = EventStatus.Active; // Events are automatically active when created
+        newEvent.status = EventStatus.Active;
         newEvent.organizer = msg.sender;
         newEvent.basePrice = basePrice;
+        newEvent.totalTickets = totalTickets;
 
-         _nextEventId++;
-
-
+        _nextEventId++;
     }
 
-     function purchaseTicket(uint256 eventId) public payable returns (uint256) {
+    function purchaseTicket(uint256 eventId) public payable returns (uint256) {
         Event storage event_ = events[eventId];
         if (event_.status != EventStatus.Active) {
             revert EventIsNotActive();

@@ -243,7 +243,7 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
           {/* Quantity Selection - Disabled since contract only supports single purchases */}
           <div className="space-y-2">
             <Label htmlFor="quantity">Quantity</Label>
-            <div className="flex items-center gap-2">
+            {/* <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -267,7 +267,7 @@ export function PurchaseModal({ event, open, onOpenChange, onPurchaseSuccess }: 
               >
                 +
               </Button>
-            </div>
+            </div> */}
             <p className="text-xs text-muted-foreground">
               Currently limited to 1 ticket per transaction. {availableTickets} available.
             </p>
